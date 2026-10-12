@@ -164,16 +164,6 @@
             word-break: break-word;
             text-align: center;
         }
-        .question .highlight {
-            background: #fbe9d2;
-            padding: 0 14px;
-            border-radius: 30px;
-            color: #a34f0c;
-            font-weight: 700;
-            font-size: 1.8rem;
-            display: inline-block;
-            min-width: 60px;
-        }
         .input-area {
             display: flex;
             flex-wrap: wrap;
@@ -262,8 +252,13 @@
             color: white;
             box-shadow: 0 6px 12px -6px #1f8b4c70;
         }
-        .btn-success:hover {
+        .btn-success:hover:not(:disabled) {
             background: #16723d;
+        }
+        .btn-success:disabled {
+            opacity: 0.6;
+            transform: none;
+            cursor: not-allowed;
         }
         .feedback {
             margin: 12px 0 6px;
@@ -305,27 +300,6 @@
             margin: 6px 0;
             display: none;
             text-align: center;
-        }
-        .footer-actions {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 12px;
-            margin-top: 16px;
-        }
-        .new-task-btn {
-            background: #dce6f2;
-            border: none;
-            padding: 10px 28px;
-            border-radius: 60px;
-            font-weight: 500;
-            color: #1e4463;
-            cursor: pointer;
-            transition: 0.15s;
-            border: 1px solid #b6cde0;
-        }
-        .new-task-btn:hover {
-            background: #c5d7ec;
         }
         .element-display {
             font-size: 4rem;
@@ -463,7 +437,7 @@
         <div class="action-group">
             <button class="btn btn-primary" id="checkBtn">✅ Проверить</button>
             <button class="btn btn-secondary" id="hintBtn">💡 Подсказка</button>
-            <button class="btn btn-success" id="newTaskBtn">🎲 Новая задача</button>
+            <button class="btn btn-success" id="newTaskBtn" disabled>🎲 Новая задача</button>
         </div>
 
         <div class="feedback" id="feedbackArea">
@@ -474,6 +448,7 @@
         <div class="progress-block">
             <span>📊 Прогресс</span>
             <span id="progressText">0 / 0</span>
+            <span>🔄 Обновлений: <strong id="reloadAttemptsText">0</strong></span>
             <button class="progress-btn" id="progressDetailsBtn">📋 Детали</button>
             <button class="progress-btn" id="resetProgressBtn">🔄 Сброс (пароль)</button>
         </div>
@@ -492,14 +467,24 @@
 <!-- Модальное окно пароля -->
 <div class="modal" id="passwordModal">
     <div class="modal-card">
-        <h3>🔐 Введите пароль для сброса</h3>
+        <h3 id="passwordModalTitle">🔐 Введите пароль</h3>
         <input type="password" id="passwordInput" placeholder="Пароль">
-        <button class="btn btn-primary" id="confirmResetBtn">Сбросить</button>
+        <button class="btn btn-primary" id="confirmPasswordBtn">Подтвердить</button>
         <button class="close-modal" id="closePasswordModalBtn">Отмена</button>
     </div>
 </div>
 
 <script>
+    // Подсчёт обновлений страницы через sessionStorage (или localStorage с отслеживанием по флагу navigation)
+    (function() {
+        if (performance.getEntriesByType("navigation")[0]?.type === "reload" || performance.navigation?.type === 1) {
+            let currentReloads = parseInt(localStorage.getItem('chem_trainer_reload_attempts')) || 0;
+            localStorage.setItem('chem_trainer_reload_attempts', currentReloads + 1);
+        } else if (!localStorage.getItem('chem_trainer_reload_attempts')) {
+            localStorage.setItem('chem_trainer_reload_attempts', 0);
+        }
+    })();
+
     (function() {
         // ----- ЭЛЕМЕНТЫ (все, кроме лантаноидов и актиноидов) -----
         const ELEMENTS = [
@@ -584,7 +569,7 @@
             { symbol: 'Mt', mass: 278, number: 109 },
         ];
 
-        // ----- ЗАДАЧИ (3 уровня) -----
+        // ----- ЗАДАЧИ (3 уровня с исправленными и корректными формулировками) -----
         const TASKS = {
             easy: [
                 { text: 'Во сколько раз атом кислорода (O) легче атома серы (S)? (Ответ округлите до целых)', answer: 2 },
@@ -603,7 +588,7 @@
             hard: [
                 { text: 'Масса атома некоторого элемента равна 5,31·10⁻²⁵ кг. Определите элемент и его относительную атомную массу (округлите до целых). (Подсказка: Ar = m / 1,66·10⁻²⁷)', answer: 320 },
                 { text: 'Относительная атомная масса меди (Cu) 64. Во сколько раз атом меди тяжелее атома кислорода? Ответ округлите до десятых.', answer: 4.0 },
-                { text: 'Масса атома 6,64·10⁻²⁴ г. Найдите относительную атомную массу (1 а.е.м. = 1,66·10⁻²⁴ г). Ответ округлите до целых.', answer: 400 },
+                { text: 'Масса атома 6,64·10⁻²⁴ г. Найдите относительную атомную массу (1 а.е.м. = 1,66·10⁻²⁴ г). Ответ округлите до целых.', answer: 4 },
                 { text: 'Во сколько раз атом цинка (Zn) тяжелее атома алюминия (Al)? Ответ округлите до десятых.', answer: 2.4 },
                 { text: 'Относительная атомная масса бария (Ba) 137. Во сколько раз атом бария тяжелее атома магния (Mg)? Ответ округлите до целых.', answer: 6 },
             ]
@@ -619,11 +604,17 @@
         let isAnswered = false;
         let taskCounter = 0;
 
-        // Прогресс
-        let progress = {
+        // Прогресс с загрузкой из localStorage
+        let progress = JSON.parse(localStorage.getItem('chem_trainer_progress')) || {
             table: { total: 0, correct: 0, details: [] },
             tasks: { total: 0, correct: 0, details: [] }
         };
+
+        // Отображение количества обновлений страницы
+        const reloadAttemptsText = document.getElementById('reloadAttemptsText');
+        if (reloadAttemptsText) {
+            reloadAttemptsText.textContent = localStorage.getItem('chem_trainer_reload_attempts') || '0';
+        }
 
         const questionEl = document.getElementById('questionText');
         const answerInput = document.getElementById('answerInput');
@@ -636,8 +627,14 @@
         const levelBar = document.getElementById('levelBar');
         const elementDisplay = document.getElementById('elementDisplay');
         const checkBtn = document.getElementById('checkBtn');
+        const hintBtn = document.getElementById('hintBtn');
+        const newTaskBtn = document.getElementById('newTaskBtn');
         const progressText = document.getElementById('progressText');
         const progressDetailsList = document.getElementById('progressDetailsList');
+
+        function saveProgress() {
+            localStorage.setItem('chem_trainer_progress', JSON.stringify(progress));
+        }
 
         // Случайный элемент
         function pickRandomElement() {
@@ -648,7 +645,6 @@
         // Обновить задание для режима "По элементу"
         function refreshTableTask() {
             currentTargetElement = pickRandomElement();
-            elementDisplay.textContent = currentTargetElement.symbol;
             questionEl.innerHTML = `
                 <div>Введите относительную атомную массу элемента</div>
                 <div class="element-display" id="elementDisplay">${currentTargetElement.symbol}</div>
@@ -662,6 +658,7 @@
             taskCounterEl.textContent = `#${taskCounter}`;
             isAnswered = false;
             checkBtn.disabled = false;
+            newTaskBtn.disabled = true; // Блокируем новую задачу до ответа
             updateProgressDisplay();
         }
 
@@ -695,6 +692,7 @@
                 taskCounterEl.textContent = `#${taskCounter}`;
                 isAnswered = false;
                 checkBtn.disabled = false;
+                newTaskBtn.disabled = true; // Блокируем новую задачу до ответа
                 updateProgressDisplay();
             }
         }
@@ -748,6 +746,7 @@
                 ? `${currentTargetElement.symbol} → ?` 
                 : (TASKS[currentLevel]?.[currentTaskIndex]?.text || 'задача');
             progress[modeKey].details.push({ task: taskDisplay, correct: isCorrect });
+            saveProgress();
 
             if (isCorrect) {
                 feedbackEl.innerHTML = `<span class="correct">✅ Верно!</span> Правильный ответ ${correctRounded.toFixed(1)} ${label}.`;
@@ -757,6 +756,7 @@
 
             isAnswered = true;
             checkBtn.disabled = true;
+            newTaskBtn.disabled = false; // Разрешаем новое задание только после ответа
             updateProgressDisplay();
         }
 
@@ -809,31 +809,39 @@
                 table: { total: 0, correct: 0, details: [] },
                 tasks: { total: 0, correct: 0, details: [] }
             };
+            localStorage.removeItem('chem_trainer_progress');
+            localStorage.setItem('chem_trainer_reload_attempts', '0');
+            if (reloadAttemptsText) reloadAttemptsText.textContent = '0';
             taskCounter = 0;
             updateProgressDisplay();
             feedbackEl.innerHTML = '🔄 Прогресс сброшен.';
-            // Обновим счётчик
-            if (currentMode === 'table') {
-                taskCounterEl.textContent = `#${taskCounter}`;
-            }
+            refreshUI();
         }
 
-        // ---- Модалки ----
+        // ---- Модалки и пароль ----
+        let passwordAction = null;
+
         document.getElementById('closeModalBtn').addEventListener('click', function() {
             document.getElementById('progressModal').classList.remove('active');
         });
         document.getElementById('closePasswordModalBtn').addEventListener('click', function() {
             document.getElementById('passwordModal').classList.remove('active');
         });
+
         document.getElementById('resetProgressBtn').addEventListener('click', function() {
+            passwordAction = 'reset';
+            document.getElementById('passwordModalTitle').textContent = '🔐 Введите пароль для сброса';
             document.getElementById('passwordModal').classList.add('active');
             document.getElementById('passwordInput').value = '';
         });
-        document.getElementById('confirmResetBtn').addEventListener('click', function() {
+
+        document.getElementById('confirmPasswordBtn').addEventListener('click', function() {
             const pwd = document.getElementById('passwordInput').value.trim();
-            if (pwd === 'DEE') {
-                resetProgress();
+            if (pwd.toLowerCase() === 'dee') {
                 document.getElementById('passwordModal').classList.remove('active');
+                if (passwordAction === 'reset') {
+                    resetProgress();
+                }
             } else {
                 alert('Неверный пароль!');
             }
@@ -859,17 +867,15 @@
         }
 
         // ---- Обработчики ----
-        document.getElementById('checkBtn').addEventListener('click', checkAnswer);
-        document.getElementById('hintBtn').addEventListener('click', showHint);
-        document.getElementById('newTaskBtn').addEventListener('click', function() {
+        checkBtn.addEventListener('click', checkAnswer);
+        hintBtn.addEventListener('click', showHint);
+        newTaskBtn.addEventListener('click', function() {
+            if (!isAnswered) return;
             if (currentMode === 'table') {
                 refreshTableTask();
             } else {
                 refreshUI();
             }
-        });
-        document.getElementById('resetTaskBtn')?.addEventListener('click', function() {
-            refreshUI();
         });
         document.getElementById('progressDetailsBtn').addEventListener('click', showProgressDetails);
 
@@ -896,6 +902,7 @@
 
         // ---- Инициализация ----
         setMode('table');
+        updateProgressDisplay();
     })();
 </script>
 </body>
